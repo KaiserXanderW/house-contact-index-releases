@@ -6,6 +6,11 @@
           "version": "0.1.0",
           "update_link": "https://raw.githubusercontent.com/KaiserXanderW/house-contact-index-releases/main/xpi/house-contact-index-0.1.0.xpi",
           "update_hash": "sha256:610b37415d1b4546d9a45fe384214a2fcd7666f0ea10c8f5ed6b6771075dcf8a"
+        },
+        {
+          "version": "0.1.1",
+          "update_link": "https://raw.githubusercontent.com/KaiserXanderW/house-contact-index-releases/main/xpi/house-contact-index-0.1.1.xpi",
+          "update_hash": "sha256:5aaf39cacf905c18b78e758c144b2d581c42f14810043493f4820dc2bf081b4f"
         }
       ]
     }
