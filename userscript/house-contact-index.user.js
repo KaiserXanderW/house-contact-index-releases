@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         novomind-house-contact-index
 // @namespace    https://github.com/KaiserXanderW/house-contact-index-releases
-// @version      0.1.5
+// @version      0.1.6
 // @description  Search the houses and put a house's Kurzwahl into the softphone dial field (Shift: the full number). Ships no data: import the contact list from the Violentmonkey menu.
-// @match        *://*novomind*/*
+// @include      /^[^:]*?://[^/]*?novomind[^/]*?/.*?$/
 // @run-at       document-end
 // @grant        GM_getValue
 // @grant        GM_setValue
