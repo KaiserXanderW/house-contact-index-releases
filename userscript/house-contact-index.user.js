@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         novomind-house-contact-index
 // @namespace    https://github.com/KaiserXanderW/house-contact-index-releases
-// @version      0.1.7
+// @version      0.1.8
 // @description  Search the houses and put a house's Kurzwahl into the softphone dial field (Shift: the full number). Ships no data: import the contact list from the Violentmonkey menu.
 // @include      /^[^:]*?://[^/]*?novomind[^/]*?/.*?$/
 // @run-at       document-end
@@ -50,7 +50,7 @@
   ]);
   function cleanKurzwahl(k) {
     if (k === void 0) return void 0;
-    const c = k.replace(/[\s()]/g, "").replace(/[\u2010-\u2015\u2212]/g, "-");
+    const c = k.replace(/[\s()\-\u2010-\u2015\u2212]/g, "");
     return c || void 0;
   }
   function unwrap(text) {
@@ -796,8 +796,8 @@ THE TWO SOURCES
 - SOURCE 1 \u2014 the Kurzwahl table: the houses with their Kurzwahl (the internal number,
   the one staff dial), usually under German city names.
 - SOURCE 2 \u2014 the contact list: the houses with their full external phone number
-  (and possibly house ID, house number, address and an internal number), usually under
-  local or English names.
+  (and possibly house ID, house number, address and the internal number, often in
+  bold), usually under local or English names.
 
 FORMAT
 {
@@ -812,8 +812,8 @@ Each house \u2014 exactly these keys, no others:
 { "code": "<the house ID / house code exactly as written, e.g. XX-1>",
   "houseNumber": <the internal house number as a whole number, or null>,
   "name": "<house name, see rule 4>",
-  "kurzwahl": "<the internal number, see rule 3: digits with a leading minus sign if it
-               has one, e.g. \\"-1234\\">",
+  "kurzwahl": "<the internal number, see rule 3: just the digits, no minus
+               sign, e.g. \\"1234\\">",
   "phone": "<from SOURCE 2: the house's external phone number as written, as text>",
   "address": "<street, postcode, city>",
   "city": "<city, in German>",
@@ -829,11 +829,16 @@ RULES
    list. Otherwise never guess a match: a house found in only one source still gets an
    entry, with null for what the other source would have given, and goes on the check
    list.
-3. The Kurzwahl is the internal number. Take it from SOURCE 1. If SOURCE 1 lists several
-   for a house, take the one that ends in 1, else the first one listed, and put the house
-   on the check list. If SOURCE 1 has none for a house, take the internal number from
-   SOURCE 2 if it lists one. Write it as digits with its leading minus sign, without
-   spaces or brackets: "(-4401)" and "- 4401" both become "-4401".
+3. The Kurzwahl is the internal number. SOURCE 1 lists it. SOURCE 2 often lists it too,
+   in bold: bold digits in SOURCE 2 are ALWAYS the internal number, also when they are
+   part of the external phone number (a phone number "+351 21 555 4401" with "4401" in
+   bold has the Kurzwahl 4401; the phone number stays as written). Gather every internal
+   number both sources give for the house. If they are all the same, that is the
+   Kurzwahl. If there are several or they differ, take the one that ends in 1; if none
+   or more than one ends in 1, take SOURCE 1's first. Put every house where you chose on
+   the check list, with all the numbers you saw. Write the Kurzwahl as just the digits:
+   no minus sign, no spaces, no brackets. "(-4401)", "- 4401", "-4401" and a bold "4401"
+   all become "4401".
 4. The name: SOURCE 1's name, without "a&o", "Hostel" or "Hotel". If that name is only the
    city and SOURCE 2's name for the house adds a part that tells the houses apart (a
    district, a station, a street, "City", "Centrum", "Beach"), add that part as SOURCE 2
@@ -851,9 +856,9 @@ RULES
 7. Numbers are always text. The phone number is copied exactly (keep +, spaces).
 8. Blank, unclear or contradictory values are null. Never guess and never fill in from
    general knowledge (no looking up addresses or phone numbers). The one exception is the
-   city names in rule 5. If the two sources disagree on a house's code, Kurzwahl or
-   address, use SOURCE 1's value (the Kurzwahl table) and put the house on the check
-   list.
+   city names in rule 5. If the two sources disagree on a house's code or address, use
+   SOURCE 1's value (the Kurzwahl table) and put the house on the check list (for the
+   Kurzwahl, rule 3 decides).
 9. If I attach a previous version of this file, keep its codes and aliases where the
    house still exists, so my searches keep working.
 
@@ -863,7 +868,7 @@ OUTPUT
   else inside that block. It must be valid JSON (no comments, no trailing commas).
 - After the file: one short check list: number of houses; houses only in SOURCE 1;
   houses only in SOURCE 2; houses merged under different codes (rule 2); houses where
-  you picked one of several Kurzwahl numbers, or took it from SOURCE 2 (rule 3); houses
+  you chose the Kurzwahl (rule 3), with every number you saw and the one you took; houses
   without a Kurzwahl; houses without a phone number; houses where the sources disagreed
   (rule 8) and on what; every null you set because a value was unclear (not just blank),
   with the reason.
@@ -892,7 +897,34 @@ SOURCE 2 \u2014 THE CONTACT LIST
     input.click();
   }
   function startTop() {
-    GM_addStyle(`/* The in-page launcher, popup and toast (src/launcher.ts). Injected by the
+    const storage = gmStorageArea({ getValue: GM_getValue, setValue: GM_setValue });
+    const siteKey = siteKeyForUrl(location.href) ?? location.origin;
+    const frameDial = makeFrameDial(window);
+    let handle = null;
+    const importFile = async (file) => {
+      let text;
+      try {
+        text = await readFileText(file);
+      } catch (e) {
+        handle?.toast(`Import failed: could not read ${file.name}`, true);
+        console.warn(LOG, "could not read", file.name, e);
+        return;
+      }
+      const result = await importContacts(storage, text);
+      if (!result.ok) {
+        handle?.toast(`Import failed: ${result.error}. The previous list is unchanged.`, true);
+        return;
+      }
+      for (const w of result.warnings) console.warn(LOG, "import:", w);
+      handle?.dataChanged();
+      handle?.toast(`Imported ${result.data.houses.length} houses` + (result.warnings.length ? ` (${result.warnings.length} warnings, see the console)` : ""));
+    };
+    const chooseFile = () => pickFile(document, (f) => {
+      void importFile(f);
+    });
+    let style;
+    const mount = async () => {
+      if (!style?.isConnected) style = GM_addStyle(`/* The in-page launcher, popup and toast (src/launcher.ts). Injected by the
    browser alongside the content script, so a page CSP can't block it. Every
    rule is !important and starts from \`all: initial\`, because these elements
    live in the host page's DOM (the pattern of the interactive-knowledge-base
@@ -1063,33 +1095,8 @@ hci-toast {
 hci-toast[data-kind="error"] { background: #c0392b !important; }
 hci-toast[data-show="false"] { display: none !important; }
 `);
-    const storage = gmStorageArea({ getValue: GM_getValue, setValue: GM_setValue });
-    const siteKey = siteKeyForUrl(location.href) ?? location.origin;
-    const frameDial = makeFrameDial(window);
-    let handle = null;
-    const importFile = async (file) => {
-      let text;
-      try {
-        text = await readFileText(file);
-      } catch (e) {
-        handle?.toast(`Import failed: could not read ${file.name}`, true);
-        console.warn(LOG, "could not read", file.name, e);
-        return;
-      }
-      const result = await importContacts(storage, text);
-      if (!result.ok) {
-        handle?.toast(`Import failed: ${result.error}. The previous list is unchanged.`, true);
-        return;
-      }
-      for (const w of result.warnings) console.warn(LOG, "import:", w);
-      handle?.dataChanged();
-      handle?.toast(`Imported ${result.data.houses.length} houses` + (result.warnings.length ? ` (${result.warnings.length} warnings, see the console)` : ""));
-    };
-    const chooseFile = () => pickFile(document, (f) => {
-      void importFile(f);
-    });
-    void (async () => {
       const positions = await loadPositions(storage);
+      handle?.destroy();
       handle = mountLauncher({
         storage,
         siteKey,
@@ -1099,6 +1106,9 @@ hci-toast[data-show="false"] { display: none !important; }
         openOptions: chooseFile,
         noDataText: "No contact list loaded. Click here to import the house-contacts file."
       });
+    };
+    void (async () => {
+      await mount();
       GM_addValueChangeListener(CONTACTS_KEY, (_k, _o, _n, remote) => {
         if (remote) handle?.dataChanged();
       });
@@ -1121,6 +1131,10 @@ hci-toast[data-show="false"] { display: none !important; }
       });
       GM_registerMenuCommand("Reset launcher position", () => {
         void handle?.resetPosition();
+      });
+      GM_registerMenuCommand("Restart Script", () => {
+        console.info(LOG, "restarting");
+        void mount().then(() => handle?.toast("House contact index restarted."));
       });
     })();
   }
