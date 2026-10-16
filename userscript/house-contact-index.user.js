@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         novomind-house-contact-index
 // @namespace    https://github.com/KaiserXanderW/house-contact-index-releases
-// @version      0.1.6
+// @version      0.1.7
 // @description  Search the houses and put a house's Kurzwahl into the softphone dial field (Shift: the full number). Ships no data: import the contact list from the Violentmonkey menu.
 // @include      /^[^:]*?://[^/]*?novomind[^/]*?/.*?$/
 // @run-at       document-end
@@ -48,6 +48,11 @@
     // import without a warning and the list is ignored.
     "numbers"
   ]);
+  function cleanKurzwahl(k) {
+    if (k === void 0) return void 0;
+    const c = k.replace(/[\s()]/g, "").replace(/[\u2010-\u2015\u2212]/g, "-");
+    return c || void 0;
+  }
   function unwrap(text) {
     const t = text.replace(/^\ufeff/, "").trim();
     const fence = /^```[a-z]*\s*\n([\s\S]*?)\n?```$/i.exec(t);
@@ -109,7 +114,7 @@
         code: code ?? "",
         houseNumber,
         name: name ?? code ?? "",
-        kurzwahl: pick(h, "kurzwahl", numText),
+        kurzwahl: cleanKurzwahl(pick(h, "kurzwahl", numText)),
         phone: pick(h, "phone", numText),
         email: pick(h, "email", str),
         address: str(h.address),
@@ -788,10 +793,11 @@ so I can import it into a browser tool. The output must follow this exact format
 contain nothing else.
 
 THE TWO SOURCES
-- SOURCE 1 \u2014 the Kurzwahl table: the houses with their internal short dial number
-  (Kurzwahl).
+- SOURCE 1 \u2014 the Kurzwahl table: the houses with their Kurzwahl (the internal number,
+  the one staff dial), usually under German city names.
 - SOURCE 2 \u2014 the contact list: the houses with their full external phone number
-  (and possibly house ID, house number and address).
+  (and possibly house ID, house number, address and an internal number), usually under
+  local or English names.
 
 FORMAT
 {
@@ -805,32 +811,50 @@ FORMAT
 Each house \u2014 exactly these keys, no others:
 { "code": "<the house ID / house code exactly as written, e.g. XX-1>",
   "houseNumber": <the internal house number as a whole number, or null>,
-  "name": "<house name>",
-  "kurzwahl": "<from SOURCE 1: the house's Kurzwahl EXACTLY as written, as text,
-               including any leading minus sign, e.g. \\"-1234\\">",
-  "phone": "<from SOURCE 2: the house's main external phone number as written,
-            as text>",
+  "name": "<house name, see rule 4>",
+  "kurzwahl": "<the internal number, see rule 3: digits with a leading minus sign if it
+               has one, e.g. \\"-1234\\">",
+  "phone": "<from SOURCE 2: the house's external phone number as written, as text>",
   "address": "<street, postcode, city>",
-  "city": "<city>",
+  "city": "<city, in German>",
   "country": "<ISO 2-letter country code, e.g. DE>",
-  "aliases": [ <other names or short names staff use for this house, if any> ] }
+  "aliases": [ <see rule 5> ] }
 
 RULES
 1. One entry per house that appears in either source. Do not invent houses.
-2. Match the two sources by house code; if a source has no codes, by exact house name.
-   Never guess a match. A house found in only one source still gets an entry, with
-   null for what the other source would have given, and goes on the check list.
-3. ONE Kurzwahl and ONE phone number per house: the house's main number (the one you
-   would call to reach the house, usually reception). Leave out everything else:
-   emergency numbers, night or after-hours lines, managers, staff and personal
-   numbers, fax, mobile numbers, email addresses, opening hours, notes. Do not add
-   any key that is not in the format above.
-4. Numbers are always text, copied exactly (keep +, spaces and a leading minus).
-5. Blank, unclear or contradictory values are null. Never guess and never fill in from
-   general knowledge (no looking up addresses or phone numbers). If the two sources
-   disagree on a house's name, code or address, use SOURCE 1's value (the Kurzwahl
-   table) and put the house on the check list.
-6. If I attach a previous version of this file, keep its codes and aliases where the
+2. Match the two sources by house code; if a source has no codes, by house name. Two
+   entries with different codes are still the same house when they are in the same city
+   and their names are the same once "a&o", "Hostel" and "Hotel" are left out: make one
+   entry with SOURCE 1's code, add the other code to its aliases, and put it on the check
+   list. Otherwise never guess a match: a house found in only one source still gets an
+   entry, with null for what the other source would have given, and goes on the check
+   list.
+3. The Kurzwahl is the internal number. Take it from SOURCE 1. If SOURCE 1 lists several
+   for a house, take the one that ends in 1, else the first one listed, and put the house
+   on the check list. If SOURCE 1 has none for a house, take the internal number from
+   SOURCE 2 if it lists one. Write it as digits with its leading minus sign, without
+   spaces or brackets: "(-4401)" and "- 4401" both become "-4401".
+4. The name: SOURCE 1's name, without "a&o", "Hostel" or "Hotel". If that name is only the
+   city and SOURCE 2's name for the house adds a part that tells the houses apart (a
+   district, a station, a street, "City", "Centrum", "Beach"), add that part as SOURCE 2
+   writes it: "Lissabon" + "Lisboa Alfama" gives "Lissabon Alfama". If SOURCE 1's name
+   already has such a part, keep SOURCE 1's name as it is ("Hbf" and "Hauptbahnhof" are
+   the same part).
+5. Aliases, so the house is found under every name staff use: the city in German, in
+   English and in the local language when they differ ("Lissabon", "Lisbon", "Lisboa");
+   SOURCE 2's name for the house when it differs from "name"; any other code from rule
+   2; and other names or short names staff use. No duplicates.
+6. ONE Kurzwahl and ONE phone number per house: the number you would call to reach the
+   house, usually reception. Leave out everything else: emergency numbers, night or
+   after-hours lines, managers, staff and personal numbers, fax, mobile numbers, email
+   addresses, opening hours, notes. Do not add any key that is not in the format above.
+7. Numbers are always text. The phone number is copied exactly (keep +, spaces).
+8. Blank, unclear or contradictory values are null. Never guess and never fill in from
+   general knowledge (no looking up addresses or phone numbers). The one exception is the
+   city names in rule 5. If the two sources disagree on a house's code, Kurzwahl or
+   address, use SOURCE 1's value (the Kurzwahl table) and put the house on the check
+   list.
+9. If I attach a previous version of this file, keep its codes and aliases where the
    house still exists, so my searches keep working.
 
 OUTPUT
@@ -838,9 +862,11 @@ OUTPUT
   If you cannot create files, output it as one single \`\`\`json code block and nothing
   else inside that block. It must be valid JSON (no comments, no trailing commas).
 - After the file: one short check list: number of houses; houses only in SOURCE 1;
-  houses only in SOURCE 2; houses without a Kurzwahl; houses without a phone number;
-  houses where the sources disagreed (rule 5) and on what; every null you set
-  because a value was unclear (not just blank), with the reason.
+  houses only in SOURCE 2; houses merged under different codes (rule 2); houses where
+  you picked one of several Kurzwahl numbers, or took it from SOURCE 2 (rule 3); houses
+  without a Kurzwahl; houses without a phone number; houses where the sources disagreed
+  (rule 8) and on what; every null you set because a value was unclear (not just blank),
+  with the reason.
 
 SOURCE 1 \u2014 THE KURZWAHL TABLE
 <paste it here, or attach it / name the page>
